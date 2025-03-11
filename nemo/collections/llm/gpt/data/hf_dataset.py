@@ -231,7 +231,7 @@ class HFDatasetDataModule(pl.LightningDataModule):
         self.global_batch_size = global_batch_size
         self.pad_token_id = pad_token_id
         self.pack_sequence = pack_sequence
-        self.return_pos_ids_only = return_pos_ids_only #TODO Applicable only if pack_sequence=true
+        self.return_pos_ids_only = return_pos_ids_only  # TODO Applicable only if pack_sequence=true
         self.use_mcore_sampler = use_mcore_sampler
         self.mcore_dataloader_type = mcore_dataloader_type
         self.use_dist_sampler = use_dist_sampler
@@ -243,21 +243,17 @@ class HFDatasetDataModule(pl.LightningDataModule):
         return HFDatasetDataModule(path_or_dataset=dataset, split=split, **kwargs)
 
     @staticmethod
-    def get_attention_mask_for_packed_sequence(tokenized_sentences, return_pos_ids_only: bool = False): #TODO tokenizer
-        eos_token_id = 50256 #TODO get from tokenizer for all eos_token_id below
+    def get_attention_mask_for_packed_sequence(
+        tokenized_sentences, return_pos_ids_only: bool = False
+    ):  # TODO tokenizer
+        eos_token_id = 50256  # TODO get from tokenizer for all eos_token_id below
         # : tokenizer.eos_token_id
-        batch = torch.nn.utils.rnn.pad_sequence(
-        [tokenized_sentences],
-        batch_first=True, padding_value=eos_token_id
-        )
+        batch = torch.nn.utils.rnn.pad_sequence([tokenized_sentences], batch_first=True, padding_value=eos_token_id)
 
         B, T = batch.shape
-        eos_idx = (batch.view(-1) == eos_token_id) \
-            .nonzero(as_tuple=True)[0] + 1
+        eos_idx = (batch.view(-1) == eos_token_id).nonzero(as_tuple=True)[0] + 1
 
-        eos_idx_expanded = torch.cat(
-            [eos_idx, torch.arange(0,B*T+1,T)]
-            ).unique().sort()[0]
+        eos_idx_expanded = torch.cat([eos_idx, torch.arange(0, B * T + 1, T)]).unique().sort()[0]
 
         normalized_idx = eos_idx_expanded - (eos_idx_expanded // T) * T
         normalized_idx = torch.where(normalized_idx == 0, T, normalized_idx)
@@ -265,15 +261,13 @@ class HFDatasetDataModule(pl.LightningDataModule):
         reps = normalized_idx[1:] - normalized_idx[:-1]
         reps = torch.where(reps < 1, normalized_idx[1:], reps)
 
-        pos_ids = (torch.arange(B*T) - torch.repeat_interleave(eos_idx_expanded[:-1], reps)).view(B,T)
+        pos_ids = (torch.arange(B * T) - torch.repeat_interleave(eos_idx_expanded[:-1], reps)).view(B, T)
         if return_pos_ids_only:
             return pos_ids
 
-        repeated_idx = torch.repeat_interleave(
-        normalized_idx[1:], reps
-        ).view(B,1,T).expand(-1,T,-1)
+        repeated_idx = torch.repeat_interleave(normalized_idx[1:], reps).view(B, 1, T).expand(-1, T, -1)
 
-        mask_indices = torch.arange(T).view(1,-1,1).expand(B, -1, T)
+        mask_indices = torch.arange(T).view(1, -1, 1).expand(B, -1, T)
         # create mask
         mask = torch.ones(T, T, dtype=torch.bool).tril().expand(B, -1, -1)
         mask = mask.masked_fill(mask_indices >= repeated_idx, False)
@@ -294,7 +288,7 @@ class HFDatasetDataModule(pl.LightningDataModule):
             max_len = max(map(len, batch))
             return [item + [pad_token_id] * (max_len - len(item)) for item in batch]
 
-        output_dict={
+        output_dict = {
             key: batchify(
                 torch.LongTensor(
                     pad_within_micro(
@@ -307,9 +301,13 @@ class HFDatasetDataModule(pl.LightningDataModule):
         }
         if self.pack_sequence:
             if self.return_pos_ids_only:
-                output_dict["pos_ids"] = self.get_attention_mask_for_packed_sequence(output_dict['input_ids'], self.return_pos_ids_only)# tokenizer)
+                output_dict["pos_ids"] = self.get_attention_mask_for_packed_sequence(
+                    output_dict['input_ids'], self.return_pos_ids_only
+                )  # tokenizer)
             else:
-                output_dict["attn_mask"] = self.get_attention_mask_for_packed_sequence(output_dict['input_ids']) #TODO tojenizer
+                output_dict["attn_mask"] = self.get_attention_mask_for_packed_sequence(
+                    output_dict['input_ids']
+                )  # TODO tojenizer
 
         return output_dict
 
