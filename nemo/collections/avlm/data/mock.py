@@ -22,8 +22,8 @@ from torch.utils import data
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoProcessor
 
+from nemo.collections.avlm.data.multimodal_tokens import AUDIO_TOKEN_INDEX, IMAGE_TOKEN_INDEX
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
-from nemo.collections.avlm.data.multimodal_tokens import IMAGE_TOKEN_INDEX, AUDIO_TOKEN_INDEX
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 
@@ -103,7 +103,12 @@ class MockDataModule(pl.LightningDataModule):
             stage (str): Stage of the setup ('train', 'valid', 'test').
         """
         self._train_ds = _MockAVLMDataset(
-            self.tokenizer, self.image_processor, self.audio_processor, "train", self.num_train_samples, self.seq_length
+            self.tokenizer,
+            self.image_processor,
+            self.audio_processor,
+            "train",
+            self.num_train_samples,
+            self.seq_length,
         )
         self._validation_ds = _MockAVLMDataset(
             self.tokenizer, self.image_processor, self.audio_processor, "valid", self.num_val_samples, self.seq_length
@@ -268,17 +273,21 @@ class _MockAVLMDataset(Dataset):
         #  attention_mask
         attention_mask = torch.ones(len(tokens), dtype=torch.long)
 
-        # mock images 
-        images = num_images*[torch.from_numpy(np_gen.random(size=[3, self.image_height, self.image_width], dtype=np.float32))]
+        # mock images
+        images = num_images * [
+            torch.from_numpy(np_gen.random(size=[3, self.image_height, self.image_width], dtype=np.float32))
+        ]
         processed_images = []
         num_image_tiles = []
         for image in images:
-            processed_image = self.image_processor.preprocess(image, return_tensors='pt', do_rescale=False)['pixel_values'][0]
+            processed_image = self.image_processor.preprocess(image, return_tensors='pt', do_rescale=False)[
+                'pixel_values'
+            ][0]
             processed_images.append(processed_image)
             num_image_tiles.append(processed_image.shape[0])
         processed_images = torch.concat(processed_images, dim=0)
         num_image_tiles = torch.tensor(num_image_tiles, dtype=torch.long)
-        image_sizes = torch.tensor(num_images*[[self.image_height, self.image_width]], dtype=torch.long)
+        image_sizes = torch.tensor(num_images * [[self.image_height, self.image_width]], dtype=torch.long)
 
         # mock audios
         audio_max_length = 32000
@@ -304,7 +313,7 @@ class _MockAVLMDataset(Dataset):
             "labels": labels,
             "loss_mask": self.loss_mask,
             "attention_mask": attention_mask,
-            "position_ids": self.position_ids, # -> remove this
+            "position_ids": self.position_ids,  # -> remove this
             "images": processed_images,
             "image_sizes": image_sizes,
             "num_image_tiles": num_image_tiles,
@@ -334,12 +343,10 @@ class _MockAVLMDataset(Dataset):
         collated_batch['audios'] = collated_batch['audios'].contiguous().view(-1, *collated_batch['audios'].shape[2:])
         collated_batch['audio_lengths'] = collated_batch['audio_lengths'].flatten()
 
-
-
         # # DEBUGGING
         # print("[after] collated_batch['images'].shape: ", collated_batch['images'].shape)
         # print("[after] collated_batch['num_image_tiles'].shape: ", collated_batch['num_image_tiles'].shape)
-        # print("[after] collated_batch['image_sizes'].shape: ", collated_batch['image_sizes'].shape) 
+        # print("[after] collated_batch['image_sizes'].shape: ", collated_batch['image_sizes'].shape)
         # print("[after] collated_batch['audios'].shape: ", collated_batch['audios'].shape)
         # print("[after] collated_batch['audio_lengths'].shape: ", collated_batch['audio_lengths'].shape)
         # # print(stop_here)

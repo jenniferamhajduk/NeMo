@@ -29,10 +29,9 @@ from megatron.core.tensor_parallel import gather_from_sequence_parallel_region
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import nn
 
+from nemo.collections.avlm.data.multimodal_tokens import AUDIO_TOKEN_INDEX, IGNORE_INDEX, IMAGE_TOKEN_INDEX
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.llm import fn
-
-from nemo.collections.avlm.data.multimodal_tokens import IGNORE_INDEX, IMAGE_TOKEN_INDEX, AUDIO_TOKEN_INDEX
 from nemo.lightning import io
 from nemo.lightning.io.pl import ckpt_to_weights_subdir
 from nemo.lightning.megatron_parallel import MaskedTokenLossReductionWithLossMask
@@ -66,6 +65,7 @@ MODEL_CONFIG_ATTR = [
     'calculate_per_token_loss',
     'seq_length',
 ]
+
 
 def restore_model_weights(model, checkpoint_path, strict=False):
     """
@@ -416,6 +416,7 @@ class MCoreAVLMModel(MCoreLLaVAModel):
         #     print(f"Audio projection: {count_parameters(self.audio_projection):,}")
         #     print(f"Language model: {count_parameters(self.language_model):,}")
         #     print(stop_here)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -476,7 +477,6 @@ class MCoreAVLMModel(MCoreLLaVAModel):
         # print("----------------------")
         # print(stop_here)
 
-
         # TODO: not sure what to do with this?
         use_inference_kv_cache = (
             inference_params is not None and "media_tokens_count" in inference_params.key_value_memory_dict
@@ -494,7 +494,9 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                 if not has_images:
                     vision_param = next(self.vision_model.parameters())
                     # If no images provided, use an empty image embeddings tensor.
-                    image_embeddings = torch.tensor([], dtype=vision_param.dtype, device=vision_param.device).reshape(0, 0, 0)
+                    image_embeddings = torch.tensor([], dtype=vision_param.dtype, device=vision_param.device).reshape(
+                        0, 0, 0
+                    )
                 else:
                     # images is in shape of (num_images_in_mbs, c, h, w)
                     # note num_images_in_mbs is not mbs but total images in this mbs.
@@ -507,13 +509,17 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                         ]  # [num_images, img_seq_len, h_vision]
                     else:
                         # TODO(yuya): MCore Clip path not yet support taking a specific layer hidden states
-                        image_embeddings = self.vision_model(images, num_unused_layers=-self.config.vision_feature_layer - 1)
+                        image_embeddings = self.vision_model(
+                            images, num_unused_layers=-self.config.vision_feature_layer - 1
+                        )
                     if self._drop_vision_class_token:
                         class_token_len = getattr(self.vision_model, "class_token_len", 1)
                         image_embeddings = image_embeddings[:, class_token_len:, :]
 
                     # contiguous() required as `permute` can sparsify the tensor and this breaks pipelining
-                    image_embeddings = image_embeddings.permute(1, 0, 2).contiguous()  # [img_seq_len, num_tiles, h_vision]
+                    image_embeddings = image_embeddings.permute(
+                        1, 0, 2
+                    ).contiguous()  # [img_seq_len, num_tiles, h_vision]
 
                     # map vision model output size to language model input size.
                     image_embeddings = self.vision_projection(image_embeddings)  # [img_seq_len, num_tiles, h_language]
@@ -526,7 +532,9 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                         inference_params.key_value_memory_dict["image_tokens_count"] = (
                             image_embeddings.shape[0] * image_embeddings.shape[1]
                         )
-                        inference_params.key_value_memory_dict["media_tokens_count"] = inference_params.key_value_memory_dict["image_tokens_count"]
+                        inference_params.key_value_memory_dict["media_tokens_count"] = (
+                            inference_params.key_value_memory_dict["image_tokens_count"]
+                        )
             else:
                 image_embeddings = None
 
@@ -536,24 +544,26 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                 if not has_audios:
                     audio_param = next(self.audio_model.parameters())
                     # If no audios provided, use an empty audio embeddings tensor.
-                    audio_embeddings = torch.tensor([], dtype=audio_param.dtype, device=audio_param.device).reshape(0, 0)
+                    audio_embeddings = torch.tensor([], dtype=audio_param.dtype, device=audio_param.device).reshape(
+                        0, 0
+                    )
                 else:
                     # audios is in shape of (num_audios_in_mbs, audio_feature_dim)
                     # note num_audios_in_mbs is not mbs but total audios in this mbs.
                     audios = audios.to(next(self.audio_model.parameters()).dtype)
                     audio_embeddings, audio_embedding_lens = self.audio_model(
-                        input_signal = audios,
-                        input_signal_length = audio_lengths,
-                        processed_signal = None,
-                        processed_signal_length = None, # what difference between input_signal and processed_signal?
-                    ) 
+                        input_signal=audios,
+                        input_signal_length=audio_lengths,
+                        processed_signal=None,
+                        processed_signal_length=None,  # what difference between input_signal and processed_signal?
+                    )
 
                     # [num_audios, h_audio, audio_seq_len] -> [audio_seq_len, num_audios, h_audio]
                     # contiguous() required as `permute` can sparsify the tensor and this breaks pipelining
-                    audio_embeddings = audio_embeddings.permute(2, 0, 1).contiguous() 
+                    audio_embeddings = audio_embeddings.permute(2, 0, 1).contiguous()
 
                     # map audio model output size to language model input size.
-                    audio_embeddings = self.audio_projection(audio_embeddings)  
+                    audio_embeddings = self.audio_projection(audio_embeddings)
 
                     # TODO: not sure what to do with this?
                     # TODO: Support batched inference.
@@ -564,9 +574,13 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                             audio_embeddings.shape[0] * audio_embeddings.shape[1]
                         )
                         if "media_tokens_count" in inference_params.key_value_memory_dict:
-                            inference_params.key_value_memory_dict["media_tokens_count"] += inference_params.key_value_memory_dict["audio_tokens_count"]
+                            inference_params.key_value_memory_dict[
+                                "media_tokens_count"
+                            ] += inference_params.key_value_memory_dict["audio_tokens_count"]
                         else:
-                            inference_params.key_value_memory_dict["media_tokens_count"] = inference_params.key_value_memory_dict["audio_tokens_count"]
+                            inference_params.key_value_memory_dict["media_tokens_count"] = (
+                                inference_params.key_value_memory_dict["audio_tokens_count"]
+                            )
             else:
                 audio_embeddings = None
         else:
@@ -578,7 +592,6 @@ class MCoreAVLMModel(MCoreLLaVAModel):
 
         if not self.add_decoder:
             return image_embeddings, audio_embeddings
-
 
         language_embeddings = None
         if self.pre_process:
@@ -606,10 +619,10 @@ class MCoreAVLMModel(MCoreLLaVAModel):
             loss_mask,
             labels,
             image_embeddings,
-            num_image_tiles,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+            num_image_tiles,
             image_token_index,
             audio_embeddings,
-            audio_embedding_lens,                                                                                                                      
+            audio_embedding_lens,
             audio_token_index,
             use_inference_kv_cache,
             packed_seq_params,
@@ -628,7 +641,6 @@ class MCoreAVLMModel(MCoreLLaVAModel):
         # print(f"final_attention_mask.shape: {final_attention_mask.shape}")
         # print("-----------------")
         # print(stop_here)
-
 
         if self.context_parallel_lm > 1 or self.sequence_parallel_lm:
             if self.context_parallel_lm > 1:
@@ -658,11 +670,11 @@ class MCoreAVLMModel(MCoreLLaVAModel):
         return output, final_loss_mask.contiguous()
 
     def freeze(
-        self, 
-        freeze_language_model: bool, 
-        freeze_vision_model: bool, 
+        self,
+        freeze_language_model: bool,
+        freeze_vision_model: bool,
         freeze_vision_projection: bool,
-        freeze_audio_model: bool, 
+        freeze_audio_model: bool,
         freeze_audio_projection: bool,
     ):
         """Freeze model modules.
@@ -773,19 +785,22 @@ class MCoreAVLMModel(MCoreLLaVAModel):
             num_image_tiles_batch = torch.tensor([x.sum() for x in num_image_tiles_batch], device=input_ids.device)
             num_audios_per_sample = torch.sum(audio_token_mask, dim=-1)
             audios_embeddings_lengths_batch = audio_embedding_lens.split(num_audios_per_sample.tolist(), dim=0)
-            audios_embeddings_lengths_batch = torch.tensor([x.sum() for x in audios_embeddings_lengths_batch], device=input_ids.device)
+            audios_embeddings_lengths_batch = torch.tensor(
+                [x.sum() for x in audios_embeddings_lengths_batch], device=input_ids.device
+            )
 
-            # Sequence length for each sample: 
-            # (image sequence length multiplied by the number of tiles for that image) + (audio sequence length) 
-            # - (number of image tokens + number of audio tokens) 
+            # Sequence length for each sample:
+            # (image sequence length multiplied by the number of tiles for that image) + (audio sequence length)
+            # - (number of image tokens + number of audio tokens)
             # + (text sequence length).
             seq_lens = (
-                (num_image_tiles_batch * img_seq_len) + audios_embeddings_lengths_batch 
-                - (num_images_per_sample + num_audios_per_sample) 
+                (num_image_tiles_batch * img_seq_len)
+                + audios_embeddings_lengths_batch
+                - (num_images_per_sample + num_audios_per_sample)
                 + text_seq_len
             )
             max_seq_len = seq_lens.max()
-            
+
             # Pipeline parallel expects fixed input size. Check if we need to pad.
             if self._language_is_pipeline_parallel and max_seq_len < self._language_max_sequence_length:
                 max_seq_len = self._language_max_sequence_length
@@ -874,7 +889,6 @@ class MCoreAVLMModel(MCoreLLaVAModel):
             # print("new_audios_position_ids: ", new_audios_position_ids)
             # # print(stop_here)
 
-
         # Create the final input embedding (if this is the first language model stage).
         final_embedding = None
         if self.pre_process:
@@ -909,7 +923,7 @@ class MCoreAVLMModel(MCoreLLaVAModel):
             images_mask = torch.full((batch_size, max_seq_len), False, dtype=torch.bool, device=input_ids.device)
             for i in range(final_embedding.shape[0]):
                 for j in range(len(new_images_position_ids[i])):
-                    current_image_seq_len = num_image_tiles[image_pointer]*img_seq_len
+                    current_image_seq_len = num_image_tiles[image_pointer] * img_seq_len
                     current_image_tokens_end_idx = new_images_position_ids[i][j]
                     current_image_tokens_start_idx = current_image_tokens_end_idx - current_image_seq_len
 
@@ -919,11 +933,13 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                     # print("final_embedding[i][current_image_tokens_start_idx:current_image_tokens_end_idx].shape: ", final_embedding[i][current_image_tokens_start_idx:current_image_tokens_end_idx].shape)
                     # print("image_embeddings[tile_pointer : (tile_pointer + current_image_seq_len)].shape: ", image_embeddings[tile_pointer : (tile_pointer + current_image_seq_len)].shape)
 
-                    final_embedding[i][current_image_tokens_start_idx:current_image_tokens_end_idx] = image_embeddings[tile_pointer : (tile_pointer + current_image_seq_len)]
+                    final_embedding[i][current_image_tokens_start_idx:current_image_tokens_end_idx] = image_embeddings[
+                        tile_pointer : (tile_pointer + current_image_seq_len)
+                    ]
                     images_mask[i][current_image_tokens_start_idx:current_image_tokens_end_idx] = True
                     tile_pointer += num_image_tiles[image_pointer]
                     image_pointer += 1
-            # print(stop_here)    
+            # print(stop_here)
 
             # Put audio embeddings to the last position of the audio tokens
             audio_embeddings = audio_embeddings.permute(1, 0, 2).contiguous()
@@ -942,7 +958,9 @@ class MCoreAVLMModel(MCoreLLaVAModel):
                     # print("final_embedding[i][current_audio_tokens_start_idx:current_audio_tokens_end_idx].shape: ", final_embedding[i][current_audio_tokens_start_idx:current_audio_tokens_end_idx].shape)
                     # print("audio_embeddings[audio_pointer][:current_audio_seq_len].shape: ", audio_embeddings[audio_pointer][:current_audio_seq_len].shape)
 
-                    final_embedding[i][current_audio_tokens_start_idx:current_audio_tokens_end_idx] = audio_embeddings[audio_pointer][:current_audio_seq_len]
+                    final_embedding[i][current_audio_tokens_start_idx:current_audio_tokens_end_idx] = audio_embeddings[
+                        audio_pointer
+                    ][:current_audio_seq_len]
                     audios_mask[i][current_audio_tokens_start_idx:current_audio_tokens_end_idx] = True
                     audio_pointer += 1
                     audio_length_pointer += 1

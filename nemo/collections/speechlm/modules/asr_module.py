@@ -95,7 +95,7 @@ class MCoreASRModule(MegatronModule):
 class ASRModuleConfig(ModelParallelConfig, io.IOMixin):
     _target_: Optional[str] = None
     pretrained_model: Optional[str] = "stt_en_fastconformer_transducer_large"
-    hidden_size: Optional[int] = None    
+    hidden_size: Optional[int] = None
     config: Optional[dict] = None
     preprocessor_config: Optional[dict] = None
     spec_augment_config: Optional[dict] = None

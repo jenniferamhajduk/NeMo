@@ -29,11 +29,11 @@ from lightning.pytorch.loggers import WandbLogger
 from megatron.core.optimizer import OptimizerConfig
 
 from nemo import lightning as nl
-from nemo.collections import llm, vlm, avlm
+from nemo.collections import avlm, llm, vlm
+from nemo.collections.speechlm.modules.asr_module import ASRModuleConfig
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.utils.exp_manager import TimingCallback
-from nemo.collections.speechlm.modules.asr_module import ASRModuleConfig
 
 
 def main(args):
@@ -78,18 +78,18 @@ def main(args):
     )
 
     # canary audio encoder
-    audio_transformer_config=ASRModuleConfig(
+    audio_transformer_config = ASRModuleConfig(
         _target_="nemo.collections.asr.models.EncDecMultiTaskModel",
         pretrained_model="nvidia/canary-1b",
         hidden_size=1024,
         target_module="encoder",
         spec_augment_config={
             "_target_": "nemo.collections.asr.modules.SpectrogramAugmentation",
-            "freq_masks": 2, # set to zero to disable it
-            "time_masks": 10, # set to zero to disable it
+            "freq_masks": 2,  # set to zero to disable it
+            "time_masks": 10,  # set to zero to disable it
             "freq_width": 27,
             "time_width": 0.05,
-        }
+        },
     )
     # # whisper audio encoder  # need update NeMo from Steve's branch
     # audio_transformer_config=ASRModuleConfig(
@@ -110,7 +110,7 @@ def main(args):
     # )
     audio_projection_config = vlm.MultimodalProjectorConfig(
         projector_type=args.projector_type,
-        input_size=audio_transformer_config.hidden_size, # need to set somehow?
+        input_size=audio_transformer_config.hidden_size,  # need to set somehow?
         hidden_size=language_transformer_config.hidden_size,
         ffn_hidden_size=language_transformer_config.hidden_size,
     )
@@ -187,7 +187,6 @@ def main(args):
     #     enable_progress_bar=False,
     #     enable_model_summary=False
     # )
-
 
     # Logger setup
     nemo_logger = nl.NeMoLogger(
