@@ -144,7 +144,7 @@ class HFLlamaTronExporter:
             target.save_pretrained(self.output_path)
 
         try:
-            self.tokenizer.tokenizer.save_pretrained(self.output_path)
+            self.tokenizer._tokenizer.save_pretrained(self.output_path)
         except Exception:
             logging.warning("Failed to save tokenizer")
 
